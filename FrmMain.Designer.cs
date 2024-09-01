@@ -130,7 +130,7 @@ partial class FrmMain
         // 
         notIcon.Text = "notifyIcon1";
         notIcon.Visible = true;
-        notIcon.MouseDoubleClick += notIcon_MouseDoubleClick;
+        notIcon.MouseDoubleClick += NotIcon_MouseDoubleClick;
         // 
         // menuStrip
         // 

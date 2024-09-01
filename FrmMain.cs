@@ -1,13 +1,15 @@
 using DatabaseServiceManager.Common;
-using DatabaseServiceManager.Services;
 using System.Reflection;
 
 namespace DatabaseServiceManager;
 
 public partial class FrmMain : Form
 {
-    public FrmMain()
+    private readonly IService _service;
+    public FrmMain(
+        IService service)
     {
+        _service = service;
         InitializeComponent();
         ConfigureNotifyIcon();
         ConfigureMenuStrip();
@@ -19,78 +21,102 @@ public partial class FrmMain : Form
         var exePath = Assembly.GetExecutingAssembly().Location;
         notIcon.Icon = Icon.ExtractAssociatedIcon(exePath);
         notIcon.Text = Assembly.GetExecutingAssembly().GetName().Name;
-        notIcon.MouseDoubleClick += notIcon_MouseDoubleClick;
+        notIcon.MouseDoubleClick += NotIcon_MouseDoubleClick;
         notIcon.Visible = true;
     }
     private void ConfigureMenuStrip()
     {
         menuStrip = new ContextMenuStrip();
 
-        var mysql = new ToolStripMenuItem(EDatabase.MySql.ToString());
-        mysql.Click += BtnMySql_Click;
-        menuStrip.Items.Add(mysql);
+        foreach (EDatabase db in Enum.GetValues(typeof(EDatabase)))
+        {
+            var menuItem = new ToolStripMenuItem(db.ToString());
+            menuItem.Click += (_, _) => DatabaseMenuItem_Click(db);
+            menuStrip.Items.Add(menuItem);
+        }
 
-        var firebird = new ToolStripMenuItem(EDatabase.Firebird.ToString());
-        firebird.Click += BtnFirebird_Click;
-        menuStrip.Items.Add(firebird);
-
-        var postgre = new ToolStripMenuItem(EDatabase.PostgreSql.ToString());
-        postgre.Click += BtnPostgreSql_Click;
-        menuStrip.Items.Add(postgre);
-
-        var sqlServer = new ToolStripMenuItem(EDatabase.SqlServer.ToString());
-        sqlServer.Click += BtnSqlServer_Click;
-        menuStrip.Items.Add(sqlServer);
-
+        var exitMenuItem = new ToolStripMenuItem("Sair");
+        exitMenuItem.Click += (_, _) => Application.Exit();
+        menuStrip.Items.Add(exitMenuItem);
         notIcon.ContextMenuStrip = menuStrip;
-    }
-    private void BtnMySql_Click(object? sender, EventArgs e)
-    {
-        ExecuteHandler(new MySqlService(), btnMySql, EDatabase.MySql);
-    }
-    private void BtnFirebird_Click(object? sender, EventArgs e)
-    {
-        ExecuteHandler(new FirebirdService(), btnFirebird, EDatabase.Firebird);
-    }
-    private void BtnPostgreSql_Click(object? sender, EventArgs e)
-    {
-        ExecuteHandler(new PostgreSqlService(), btnPostgreSql, EDatabase.PostgreSql);
-    }
-    private void BtnSqlServer_Click(object? sender, EventArgs e)
-    {
-        ExecuteHandler(new SqlServerService(), btnSqlServer, EDatabase.SqlServer);
-    }
-    private void ExecuteHandler(IServiceCommand handler, Button button, EDatabase database)
-    {
-        var result = handler.ExecuteCommand();
-        var service = new ServiceInfo(handler, button, database.ToString());
-        ServiceInfo.UpdateServiceButton(service);
-        if (!result.Success)
-            MessageBox.Show(result.Error, "Erro", MessageBoxButtons.OK);
     }
     private void CheckCurrentServicesStates()
     {
-        var services = new List<ServiceInfo>
+        foreach (EDatabase db in Enum.GetValues(typeof(EDatabase)))
         {
-            new(new MySqlService(), btnMySql, "MySQL"),
-            new(new FirebirdService(), btnFirebird, "Firebird"),
-            new(new SqlServerService(), btnSqlServer, "SqlServer"),
-            new(new PostgreSqlService(), btnPostgreSql, "PostgreSQL")
-        };
-
-        foreach (var service in services)
-        {
-            ServiceInfo.UpdateServiceButton(service);
+            var button = GetButtonByDatabase(db);
+            var menuItem = GetMenuItemByDatabase(db);
+            CheckButton(_service.SetServiceName(db), button);
+            CheckMenuStrip(_service.SetServiceName(db), menuItem);
         }
     }
-    private void FrmMain_Load(object sender, EventArgs e)
+    private void DatabaseMenuItem_Click(EDatabase database)
     {
-        MinimizeToTray();
+        _service.SetServiceName(database);
+        ExecuteHandler();
     }
-    private void notIcon_MouseDoubleClick(object? sender, MouseEventArgs e)
+    private Button GetButtonByDatabase(EDatabase database)
     {
-        RestoreFromTray();
+        return database switch
+        {
+            EDatabase.Firebird => btnFirebird,
+            EDatabase.MySql => btnMySql,
+            EDatabase.PostgreSql => btnPostgreSql,
+            EDatabase.SqlServer => btnSqlServer,
+            _ => throw new ArgumentOutOfRangeException(nameof(database), database, null)
+        };
     }
+    private ToolStripMenuItem GetMenuItemByDatabase(EDatabase database)
+    {
+        return menuStrip.Items
+            .OfType<ToolStripMenuItem>()
+            .First(x => x
+                .Text!
+                .Contains(database.ToString()));
+    }
+    private void BtnMySql_Click(object? sender, EventArgs e)
+    {
+        _service.SetServiceName(EDatabase.MySql);
+        ExecuteHandler();
+    }
+    private void BtnFirebird_Click(object? sender, EventArgs e)
+    {
+        _service.SetServiceName(EDatabase.Firebird);
+        ExecuteHandler();
+    }
+    private void BtnPostgreSql_Click(object? sender, EventArgs e)
+    {
+        _service.SetServiceName(EDatabase.PostgreSql);
+        ExecuteHandler();
+    }
+    private void BtnSqlServer_Click(object? sender, EventArgs e)
+    {
+        _service.SetServiceName(EDatabase.SqlServer);
+        ExecuteHandler();
+    }
+    private void ExecuteHandler()
+    {
+        var result = _service.ExecuteCommand();
+        CheckCurrentServicesStates();
+        if (!result.Success)
+            MessageBox.Show(result.Error, "Erro", MessageBoxButtons.OK);
+    }
+    private void CheckButton(IService service, Button btn)
+    {
+        var result = service.IsServiceRunning();
+        btn.Text = result.IsRunning
+            ? $"Parar serviço {service.GetServiceName()}"
+            : $"Iniciar serviço {service.GetServiceName()}";
+    }
+    private void CheckMenuStrip(IService service, ToolStripMenuItem menuItem)
+    {
+        var result = service.IsServiceRunning();
+        menuItem.Text = result.IsRunning
+            ? $"Parar serviço {service.GetServiceName()}"
+            : $"Iniciar serviço {service.GetServiceName()}";
+    }
+    private void FrmMain_Load(object sender, EventArgs e) => MinimizeToTray();
+    private void NotIcon_MouseDoubleClick(object? sender, MouseEventArgs e) => RestoreFromTray();
     private void FrmMain_Resize(object sender, EventArgs e)
     {
         if (WindowState == FormWindowState.Minimized)
